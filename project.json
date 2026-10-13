@@ -1,0 +1,12 @@
+{
+  "userId": "u_4886111579d6765a",
+  "projectId": "Norvi",
+  "name": "Norvi",
+  "board": {
+    "fqbn": "esp32:esp32:esp32"
+  },
+  "selections": null,
+  "serial": null,
+  "createdAt": "2026-10-13T08:00:37.972Z",
+  "updatedAt": "2026-10-13T08:00:37.972Z"
+}
