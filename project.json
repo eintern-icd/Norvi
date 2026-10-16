@@ -1,12 +1,35 @@
 {
-  "userId": "u_4886111579d6765a",
-  "projectId": "Norvi",
+  "schemaVersion": 2,
   "name": "Norvi",
-  "board": {
-    "fqbn": "esp32:esp32:esp32"
+  "target": {
+    "framework": "arduino",
+    "board": "esp32:esp32:esp32s3",
+    "options": {
+      "CDCOnBoot": "default",
+      "CPUFreq": "240",
+      "DebugLevel": "none",
+      "DFUOnBoot": "default",
+      "EraseFlash": "none",
+      "EventsCore": "1",
+      "FlashMode": "qio",
+      "FlashSize": "16M",
+      "JTAGAdapter": "default",
+      "LoopCore": "1",
+      "MSCOnBoot": "default",
+      "PartitionScheme": "min_spiffs",
+      "PSRAM": "disabled",
+      "UploadMode": "default",
+      "UploadSpeed": "921600",
+      "USBMode": "hwcdc",
+      "ZigbeeMode": "default"
+    }
   },
-  "selections": null,
-  "serial": null,
+  "serial": {
+    "baudRate": 115200
+  },
+  "build": {
+    "properties": []
+  },
   "createdAt": "2026-10-13T08:00:37.972Z",
-  "updatedAt": "2026-10-13T08:00:37.972Z"
+  "updatedAt": "2026-10-16T10:59:10.435Z"
 }
