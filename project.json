@@ -22,8 +22,7 @@
       "UploadSpeed": "921600",
       "USBMode": "hwcdc",
       "ZigbeeMode": "default"
-    },
-    "sketchPath": "sketch"
+    }
   },
   "serial": {
     "baudRate": 115200
@@ -32,5 +31,5 @@
     "properties": []
   },
   "createdAt": "2026-10-13T08:00:37.972Z",
-  "updatedAt": "2026-10-16T11:04:12.449Z"
+  "updatedAt": "2026-10-16T12:34:50.057Z"
 }
