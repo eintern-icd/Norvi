@@ -1,6 +1,7 @@
 /*
  * NORVI X1 (V2 N16R2) + NORVI X-AI4 (ADS1115)
- * Advanced HMI Pressure Dashboard with Motor Indicators & I2C Scan
+ * Professional Single-Channel HMI Pressure Dashboard
+ * (Optimized & Cleaned)
 */
 
 #include <Wire.h>
@@ -12,8 +13,8 @@
 #include <LovyanGFX.hpp>
 
 // --- SENSOR CONFIGURATION ---
-const float MAX_PRESSURE = 10.0; // Maximum pressure of your sensors (e.g., 10.0 Bar)
-const float TRIGGER_POINT = 5.0; // Pressure threshold to turn Motor ON
+const float MIN_PRESSURE = 1.0;  // Minimum range of sensor
+const float MAX_PRESSURE = 10.0; // Maximum range of sensor
 
 // --- PINS ---
 #define SDA   8
@@ -81,22 +82,20 @@ LGFX tft;
 
 // --- STATE TRACKING (To prevent screen flickering) ---
 unsigned long lastDisplayUpdate = 0;
-const unsigned long DISPLAY_INTERVAL = 200; // Update 5 times a second
+const unsigned long DISPLAY_INTERVAL = 200; // Fast 200ms updates
 
-float lastPres[4] = {-1.0, -1.0, -1.0, -1.0};
-int motorState[4] = {-1, -1, -1, -1}; // -1 means uninitialized
+float lastDisplayPressure = -999.0;
+String lastStatusText = "";
 
 // FUNCTION PROTOTYPES
-float calculatePressure(float volts);
 void drawStaticUI();
-void updateChannelUI(int ch, float pressure);
-void I2C_SCAN();
+void updateUI(float mA);
 
 void setup() {
   Serial.begin(115200);
   delay(200);
 
-  Serial.println("\n--- NORVI PRESSURE MONITOR BOOTING ---");
+  Serial.println("\n--- NORVI PRESSURE HMI BOOTING ---");
 
   // 1. Wake up expansion bus & isolate SPI
   pinMode(PORT_RST, OUTPUT); digitalWrite(PORT_RST, HIGH); 
@@ -106,15 +105,11 @@ void setup() {
   pinMode(SD_chipSelect, OUTPUT); digitalWrite(SD_chipSelect, HIGH); 
   pinMode(DSP_CS, OUTPUT); digitalWrite(DSP_CS, HIGH); 
   
-  // 2. Initialize I2C and Scan Bus
+  // 2. Initialize I2C and ADC
   Wire.begin(SDA, SCL);
-  I2C_SCAN(); 
-  
   if (!ads1.begin(ADS_ADDR)) {
-    Serial.println("Failed to initialize ADS1115! Check wiring and DIP switch.");
-  } else {
-    Serial.printf("ADS1115 OK at Address: 0x%02X\n", ADS_ADDR);
-  }
+    Serial.println("Failed to initialize ADS1115!");
+  } 
   
   ads1.setGain(GAIN_TWO); // +/- 2.048V range
   ads1.setDataRate(RATE_ADS1115_860SPS);
@@ -129,138 +124,146 @@ void setup() {
   // Draw the fixed dashboard elements once
   drawStaticUI();
   
-  Serial.println("System Ready - Starting Main Loop\n");
+  Serial.println("System Ready - Starting Main Loop");
 }
 
 void loop() {
-  // 1. Read Raw ADC & Convert to Voltage
-  float volts[4];
-  for(int i=0; i<4; i++) {
-    volts[i] = ads1.computeVolts(ads1.readADC_SingleEnded(i));
-  }
+  // Read Channel 1 (AIN1) Only
+  int16_t adc0 = ads1.readADC_SingleEnded(0);
+  float volts = ads1.computeVolts(adc0);
+  
+  // Hardware amplifier converts Voltage * 10 = mA
+  float mA = volts * 10.0;
 
-  // 2. Convert Voltage to Pressure (Bar)
-  float pres[4];
-  for(int i=0; i<4; i++) {
-    pres[i] = calculatePressure(volts[i]);
-  }
-
-  // 3. Update TFT Dashboard Smoothly
+  // Update TFT Dashboard Smoothly
   if (millis() - lastDisplayUpdate >= DISPLAY_INTERVAL) {
     lastDisplayUpdate = millis();
-
-    for(int i=0; i<4; i++) {
-      updateChannelUI(i, pres[i]);
-    }
+    updateUI(mA);
   }
 }
 
 // ==========================================
-// UTILITY FUNCTIONS
+// HMI DASHBOARD FUNCTIONS
 // ==========================================
 
-// Scans the I2C bus and prints all discovered addresses to Serial Monitor
-void I2C_SCAN() {
-  byte error, address;
-  int deviceCount = 0;
-
-  Serial.println("Scanning I2C Bus...");
-
-  for (address = 1; address < 127; address++) {
-    Wire.beginTransmission(address);
-    error = Wire.endTransmission();
-
-    if (error == 0) {
-      Serial.print("I2C device found at address 0x");
-      if (address < 16) {
-        Serial.print("0");
-      }
-      Serial.print(address, HEX);
-      Serial.println(" !");
-      deviceCount++;
-      delay(1);
-    } else if (error == 4) {
-      Serial.print("Unknown error at address 0x");
-      if (address < 16) {
-        Serial.print("0");
-      }
-      Serial.println(address, HEX);
-    }
-  }
-
-  if (deviceCount == 0) {
-    Serial.println("No I2C devices found.\n");
-  } else {
-    Serial.println("I2C Scan Complete.\n");
-  }
-}
-
-float calculatePressure(float volts) {
-  float mA = volts * 10.0;
-  if (mA <= 4.0) return 0.00;
-  if (mA > 20.0) mA = 20.0;
-  return ((mA - 4.0) / 16.0) * MAX_PRESSURE;
-}
-
-// Draws the layout grids and headers that never change
 void drawStaticUI() {
   // Top Header Bar
-  tft.fillRect(0, 0, 240, 45, tft.color565(0, 51, 102)); // Deep Navy Blue
+  tft.fillRect(0, 0, 240, 40, tft.color565(0, 51, 102)); // Navy Blue
   tft.setTextColor(TFT_WHITE);
   tft.setTextDatum(middle_center);
-  tft.setFont(&fonts::FreeSansBold12pt7b); 
-  tft.drawString("NORVI PANEL", 120, 22);
+  tft.setFont(&fonts::FreeSansBold9pt7b); 
+  tft.drawString("Pressure Monitoring", 120, 20);
 
-  // Draw horizontal dividing lines for the 4 rows
-  for(int i=0; i<4; i++) {
-    int y = 55 + (i * 65);
-    tft.drawFastHLine(10, y + 55, 220, TFT_DARKGREY);
-    
-    // Draw Channel Labels
-    tft.setTextColor(TFT_CYAN);
-    tft.setTextDatum(middle_left);
-    tft.setFont(&fonts::FreeSansBold9pt7b); 
-    tft.drawString("CH" + String(i+1), 10, y + 25);
-  }
+  // Range Text
+  tft.setTextColor(TFT_LIGHTGREY);
+  tft.setFont(&fonts::FreeSans9pt7b);
+  tft.drawString("Measuring Range: 1 - 10 Bar", 120, 60);
+
+  // Gauge Outline and Empty Track
+  tft.drawRect(19, 149, 202, 32, TFT_WHITE); // White Border
+  tft.fillRect(20, 150, 200, 30, TFT_DARKGREY); // Empty Gauge Track
+
+  // Visual Zone Indicators under the Gauge (Y = 185)
+  // 1-3 Bar zone (Width: 44px)
+  tft.fillRect(20, 185, 44, 5, TFT_YELLOW);
+  // 3-7 Bar zone (Width: 89px)
+  tft.fillRect(64, 185, 89, 5, tft.color565(0, 200, 0)); // Green
+  // 7-10 Bar zone (Width: 67px)
+  tft.fillRect(153, 185, 67, 5, TFT_RED);
+
+  // Gauge Tick Labels
+  tft.setTextColor(TFT_WHITE);
+  tft.setFont(&fonts::FreeSans9pt7b);
+  tft.setTextDatum(top_center);
+  tft.drawString("1", 20, 195);
+  tft.drawString("3", 64, 195);
+  tft.drawString("7", 153, 195);
+  tft.drawString("10", 220, 195);
 }
 
-// Updates only the numbers and indicator boxes that change
-void updateChannelUI(int ch, float pressure) {
-  int y_base = 55 + (ch * 65); // Calculate row Y coordinate based on channel
+void updateUI(float mA) {
+  float pressure = 0.0;
+  bool isError = false;
+  String statusText;
+  uint16_t statusColor;
+  uint16_t barColor;
 
-  // 1. Update Pressure Value (Only if it changed by >= 0.01 to prevent flickering)
-  if (abs(pressure - lastPres[ch]) >= 0.01) {
-    tft.setTextDatum(middle_left);
-    tft.setFont(&fonts::FreeSansBold12pt7b); 
-    tft.setTextColor(TFT_WHITE, TFT_BLACK); // (Text, Background) erases old text
+  // 1. EVALUATE SENSOR LOGIC & NOTIFICATION ZONES
+  // Allow a tiny 0.1mA deadband for sensor fluctuation
+  if (mA < 3.9 || mA > 20.1) {
+    isError = true;
+    statusText = "ERROR";
+    statusColor = TFT_RED;
+    barColor = TFT_DARKGREY; 
+  } else {
+    // Math: Convert 4-20mA to 1-10 Bar
+    pressure = 1.0 + ((mA - 4.0) / 16.0) * 9.0;
     
-    // Format float with 2 decimals
-    char buf[10];
-    sprintf(buf, "%5.2f", pressure);
-    tft.drawString(buf, 55, y_base + 25);
-    
-    lastPres[ch] = pressure;
+    // Clamp visual values to bounds
+    if (pressure < 1.0) pressure = 1.0;
+    if (pressure > 10.0) pressure = 10.0;
+
+    // Determine Notification Zones
+    if (pressure < 3.0) {
+      statusText = "Low Pressure";
+      statusColor = TFT_ORANGE;
+      barColor = TFT_ORANGE;
+    } else if (pressure <= 7.0) {
+      statusText = "Normal Pressure";
+      statusColor = tft.color565(0, 200, 0); // Green
+      barColor = tft.color565(0, 255, 0);    // Bright Green Bar
+    } else {
+      statusText = "High Pressure";
+      statusColor = TFT_RED;
+      barColor = TFT_RED;
+    }
   }
 
-  // 2. Update Motor Indicator Badge
-  int isON = (pressure > TRIGGER_POINT) ? 1 : 0;
-  
-  if (isON != motorState[ch]) { // Only redraw the box if state actually flips
-    motorState[ch] = isON;
-    
+  // 2. UPDATE LIVE NUMERIC VALUE & GAUGE (Only if changed to prevent flicker)
+  if (abs(pressure - lastDisplayPressure) >= 0.01 || isError) {
     tft.setTextDatum(middle_center);
-    tft.setFont(&fonts::FreeSansBold9pt7b); 
+    tft.setTextColor(TFT_WHITE, TFT_BLACK); 
+    tft.setFont(&fonts::FreeSansBold18pt7b); // Huge Font
 
-    if (isON) {
-      // Draw Bright Green ON Badge
-      tft.fillRoundRect(135, y_base + 10, 95, 30, 4, TFT_GREEN);
-      tft.setTextColor(TFT_BLACK, TFT_GREEN);
-      tft.drawString("MTR " + String(ch+1) + " ON", 135 + 47, y_base + 25);
+    if (isError) {
+      tft.drawString(" --.-- Bar ", 120, 105);
+      tft.fillRect(20, 150, 200, 30, TFT_DARKGREY); // Clear the gauge
     } else {
-      // Draw Dark Red OFF Badge
-      tft.fillRoundRect(135, y_base + 10, 95, 30, 4, TFT_MAROON);
-      tft.setTextColor(TFT_WHITE, TFT_MAROON);
-      tft.drawString("MTR " + String(ch+1) + " OFF", 135 + 47, y_base + 25);
+      char buf[20];
+      sprintf(buf, " %5.2f Bar ", pressure);
+      tft.drawString(buf, 120, 105);
+
+      // Calculate how many pixels wide the bar should be (0 to 200 pixels)
+      int barWidth = ((pressure - 1.0) / 9.0) * 200.0;
+      if (barWidth < 0) barWidth = 0;
+      if (barWidth > 200) barWidth = 200;
+
+      // Draw active colored bar
+      tft.fillRect(20, 150, barWidth, 30, barColor);
+      // Clear the rest of the empty track behind it
+      tft.fillRect(20 + barWidth, 150, 200 - barWidth, 30, TFT_DARKGREY); 
     }
+    
+    // Output debug to serial monitor
+    Serial.printf("Current: %.2f mA | Pressure: %.2f Bar | Status: %s\n", mA, (isError ? 0.0 : pressure), statusText.c_str());
+    lastDisplayPressure = pressure;
+  }
+
+  // 3. UPDATE NOTIFICATION BADGE (Only if state text changes)
+  if (statusText != lastStatusText) {
+    // Draw the rounded notification box
+    tft.fillRoundRect(10, 240, 220, 70, 8, statusColor);
+    tft.setTextColor(TFT_WHITE, statusColor);
+    tft.setTextDatum(middle_center);
+    tft.setFont(&fonts::FreeSansBold12pt7b);
+
+    if (isError) {
+      tft.drawString("SENSOR ERROR", 120, 260);
+      tft.drawString("Out of Range", 120, 290);
+    } else {
+      tft.drawString(statusText, 120, 275);
+    }
+    
+    lastStatusText = statusText;
   }
 }
