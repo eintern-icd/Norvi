@@ -7,12 +7,21 @@
         "name": "LovyanGFX",
         "version": "1.2.33",
         "scope": "shared"
+      },
+      {
+        "name": "PCA9536",
+        "version": "1.0.0",
+        "scope": "shared"
       }
     ],
     "managerResolved": [
       {
         "name": "LovyanGFX",
         "version": "1.2.33"
+      },
+      {
+        "name": "PCA9536",
+        "version": "1.0.0"
       }
     ],
     "git": []

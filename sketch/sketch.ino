@@ -1,13 +1,14 @@
 /*
  * NORVI X1 (V2 N16R2) + NORVI X-AI4 (ADS1115)
  * Professional Single-Channel HMI with ROUND GAUGE
- * (Includes Advanced LED State Tracking & Error Blinking)
+ * (Includes PCA9536 LED State Tracking & Error Blinking)
 */
 
 #include <Wire.h>
 #include <WiFi.h>
 #include <SPI.h>
 #include <Adafruit_ADS1X15.h>
+#include <PCA9536D.h>  // Added for Front Panel LEDs
 
 #define LGFX_USE_V1
 #include <LovyanGFX.hpp>
@@ -16,10 +17,9 @@
 const float MIN_PRESSURE = 0.0;  
 const float MAX_PRESSURE = 10.0;
 
-// --- LED PINS ---
-// IMPORTANT: Change these to the actual GPIO pins your front panel LEDs are connected to!
-#define LED_1_PIN 14 // Indicator for Low Pressure / Error
-#define LED_2_PIN 15 // Indicator for High Pressure / Error
+// --- PCA9536 LED PINS (Active LOW: LOW = ON, HIGH = OFF) ---
+#define IO_LED1 1 // Indicator for Low Pressure / Error
+#define IO_LED2 2 // Indicator for High Pressure / Error
 
 // --- PINS ---
 #define SDA   8
@@ -34,9 +34,10 @@ const float MAX_PRESSURE = 10.0;
 #define DSP_CS 45
 #define PORT_RST 38
 
-// --- ADS1115 SETTINGS ---
+// --- HARDWARE OBJECTS ---
 #define ADS_ADDR 0x49
 Adafruit_ADS1115 ads1;
+PCA9536 io; // PCA9536 IO Expander Object
 
 // ---------------- LOVYANGFX SETUP ----------------
 class LGFX : public lgfx::LGFX_Device {
@@ -108,13 +109,7 @@ void setup() {
 
   Serial.println("\n--- NORVI ROUND GAUGE BOOTING ---");
 
-  // 1. Initialize physical LEDs
-  pinMode(LED_1_PIN, OUTPUT);
-  pinMode(LED_2_PIN, OUTPUT);
-  digitalWrite(LED_1_PIN, LOW);  
-  digitalWrite(LED_2_PIN, LOW); 
-
-  // 2. Wake up expansion bus & isolate SPI
+  // 1. Wake up expansion bus & isolate SPI
   pinMode(PORT_RST, OUTPUT); digitalWrite(PORT_RST, HIGH); 
   delay(100);
 
@@ -122,8 +117,20 @@ void setup() {
   pinMode(SD_chipSelect, OUTPUT); digitalWrite(SD_chipSelect, HIGH); 
   pinMode(DSP_CS, OUTPUT); digitalWrite(DSP_CS, HIGH); 
   
-  // 3. Initialize I2C and ADC
+  // 2. Initialize I2C Bus First
   Wire.begin(SDA, SCL);
+  
+  // 3. Initialize PCA9536 (Front Panel LEDs)
+  if (!io.begin()) {
+    Serial.println("PCA9536 not detected!");
+  } else {
+    io.pinMode(IO_LED1, OUTPUT);
+    io.pinMode(IO_LED2, OUTPUT);
+    io.digitalWrite(IO_LED1, HIGH); // HIGH = OFF
+    io.digitalWrite(IO_LED2, HIGH); // HIGH = OFF
+  }
+
+  // 4. Initialize ADS1115 (Analog Input)
   if (!ads1.begin(ADS_ADDR)) {
     Serial.println("Failed to initialize ADS1115!");
   } 
@@ -131,7 +138,7 @@ void setup() {
   ads1.setGain(GAIN_TWO); 
   ads1.setDataRate(RATE_ADS1115_860SPS);
 
-  // 4. Display Setup
+  // 5. Display Setup
   SPI.begin(SCLK, MISO, MOSI);
   delay(100);
   tft.init();
@@ -156,27 +163,29 @@ void loop() {
     updateUI(mA);
   }
 
-  // 3. Handle Physical LEDs based on Current System State
+  // 3. Handle PCA9536 Physical LEDs based on Current System State
+  // REMEMBER: LOW = LED ON, HIGH = LED OFF
   if (systemState == 3) {
     // ERROR STATE: Blink both LEDs continuously
     if (millis() - lastBlinkTime >= BLINK_INTERVAL) {
       lastBlinkTime = millis();
       blinkState = !blinkState;
-      digitalWrite(LED_1_PIN, blinkState);
-      digitalWrite(LED_2_PIN, blinkState);
+      // Toggle both LEDs
+      io.digitalWrite(IO_LED1, blinkState ? HIGH : LOW);
+      io.digitalWrite(IO_LED2, blinkState ? HIGH : LOW);
     }
   } else if (systemState == 1) {
-    // LOW PRESSURE: LED 1 ON, LED 2 OFF
-    digitalWrite(LED_1_PIN, HIGH);
-    digitalWrite(LED_2_PIN, LOW);
+    // LOW PRESSURE: LED 1 ON (LOW), LED 2 OFF (HIGH)
+    io.digitalWrite(IO_LED1, LOW);
+    io.digitalWrite(IO_LED2, HIGH);
   } else if (systemState == 2) {
-    // HIGH PRESSURE: LED 1 OFF, LED 2 ON
-    digitalWrite(LED_1_PIN, LOW);
-    digitalWrite(LED_2_PIN, HIGH);
+    // HIGH PRESSURE: LED 1 OFF (HIGH), LED 2 ON (LOW)
+    io.digitalWrite(IO_LED1, HIGH);
+    io.digitalWrite(IO_LED2, LOW);
   } else {
-    // NORMAL PRESSURE: Both LEDs OFF
-    digitalWrite(LED_1_PIN, LOW);
-    digitalWrite(LED_2_PIN, LOW);
+    // NORMAL PRESSURE: Both LEDs OFF (HIGH)
+    io.digitalWrite(IO_LED1, HIGH);
+    io.digitalWrite(IO_LED2, HIGH);
   }
 }
 
