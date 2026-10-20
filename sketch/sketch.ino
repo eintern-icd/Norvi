@@ -1,7 +1,7 @@
 /*
  * NORVI X1 (V2 N16R2) + NORVI X-AI4 (ADS1115)
  * Professional Single-Channel HMI with ROUND GAUGE
- * (Rotated 90 Deg Counter-Clockwise - Speedometer Style)
+ * (Includes Advanced LED State Tracking & Error Blinking)
 */
 
 #include <Wire.h>
@@ -15,6 +15,11 @@
 // --- SENSOR CONFIGURATION ---
 const float MIN_PRESSURE = 0.0;  
 const float MAX_PRESSURE = 10.0;
+
+// --- LED PINS ---
+// IMPORTANT: Change these to the actual GPIO pins your front panel LEDs are connected to!
+#define LED_1_PIN 14 // Indicator for Low Pressure / Error
+#define LED_2_PIN 15 // Indicator for High Pressure / Error
 
 // --- PINS ---
 #define SDA   8
@@ -84,6 +89,12 @@ LGFX tft;
 unsigned long lastDisplayUpdate = 0;
 const unsigned long DISPLAY_INTERVAL = 150; 
 
+// LED Blinking Variables
+unsigned long lastBlinkTime = 0;
+const unsigned long BLINK_INTERVAL = 500; // 500ms blink rate
+bool blinkState = false;
+int systemState = 0; // 0=Normal, 1=Low, 2=High, 3=Error
+
 float lastDisplayPressure = -999.0;
 String lastStatusText = "";
 
@@ -97,7 +108,13 @@ void setup() {
 
   Serial.println("\n--- NORVI ROUND GAUGE BOOTING ---");
 
-  // 1. Wake up expansion bus & isolate SPI
+  // 1. Initialize physical LEDs
+  pinMode(LED_1_PIN, OUTPUT);
+  pinMode(LED_2_PIN, OUTPUT);
+  digitalWrite(LED_1_PIN, LOW);  
+  digitalWrite(LED_2_PIN, LOW); 
+
+  // 2. Wake up expansion bus & isolate SPI
   pinMode(PORT_RST, OUTPUT); digitalWrite(PORT_RST, HIGH); 
   delay(100);
 
@@ -105,7 +122,7 @@ void setup() {
   pinMode(SD_chipSelect, OUTPUT); digitalWrite(SD_chipSelect, HIGH); 
   pinMode(DSP_CS, OUTPUT); digitalWrite(DSP_CS, HIGH); 
   
-  // 2. Initialize I2C and ADC
+  // 3. Initialize I2C and ADC
   Wire.begin(SDA, SCL);
   if (!ads1.begin(ADS_ADDR)) {
     Serial.println("Failed to initialize ADS1115!");
@@ -114,7 +131,7 @@ void setup() {
   ads1.setGain(GAIN_TWO); 
   ads1.setDataRate(RATE_ADS1115_860SPS);
 
-  // 3. Display Setup
+  // 4. Display Setup
   SPI.begin(SCLK, MISO, MOSI);
   delay(100);
   tft.init();
@@ -128,15 +145,38 @@ void setup() {
 }
 
 void loop() {
-  // Read Channel 1 (AIN1)
+  // 1. Read Channel 1 (AIN1)
   int16_t adc0 = ads1.readADC_SingleEnded(0);
   float volts = ads1.computeVolts(adc0);
   float mA = volts * 10.0;
 
-  // Update TFT Dashboard Smoothly
+  // 2. Update TFT Dashboard Smoothly
   if (millis() - lastDisplayUpdate >= DISPLAY_INTERVAL) {
     lastDisplayUpdate = millis();
     updateUI(mA);
+  }
+
+  // 3. Handle Physical LEDs based on Current System State
+  if (systemState == 3) {
+    // ERROR STATE: Blink both LEDs continuously
+    if (millis() - lastBlinkTime >= BLINK_INTERVAL) {
+      lastBlinkTime = millis();
+      blinkState = !blinkState;
+      digitalWrite(LED_1_PIN, blinkState);
+      digitalWrite(LED_2_PIN, blinkState);
+    }
+  } else if (systemState == 1) {
+    // LOW PRESSURE: LED 1 ON, LED 2 OFF
+    digitalWrite(LED_1_PIN, HIGH);
+    digitalWrite(LED_2_PIN, LOW);
+  } else if (systemState == 2) {
+    // HIGH PRESSURE: LED 1 OFF, LED 2 ON
+    digitalWrite(LED_1_PIN, LOW);
+    digitalWrite(LED_2_PIN, HIGH);
+  } else {
+    // NORMAL PRESSURE: Both LEDs OFF
+    digitalWrite(LED_1_PIN, LOW);
+    digitalWrite(LED_2_PIN, LOW);
   }
 }
 
@@ -159,112 +199,5 @@ void drawStaticUI() {
 
   // --- DRAW STATIC GAUGE ELEMENTS ---
   
-  // Angles shifted -90 degrees. New Span = 135 to 405 degrees.
-  
   // 0 to 3 Bar Zone (135 to 216 degrees)
-  tft.fillArc(120, 160, 82, 85, 135, 216, TFT_YELLOW);
-  
-  // 3 to 7 Bar Zone (216 to 324 degrees)
-  tft.fillArc(120, 160, 82, 85, 216, 324, tft.color565(0, 200, 0)); // Green
-  
-  // 7 to 10 Bar Zone (324 to 405 degrees)
-  tft.fillArc(120, 160, 82, 85, 324, 405, TFT_RED);
-  
-  // Empty grey track
-  tft.fillArc(120, 160, 60, 79, 135, 405, TFT_DARKGREY);
-
-  // Draw Tick Marks Labels (Moved to bottom left and right)
-  tft.setTextColor(TFT_WHITE);
-  tft.setFont(&fonts::FreeSans9pt7b);
-  
-  tft.setTextDatum(middle_center);
-  tft.drawString("0", 55, 235); 
-  tft.drawString("10", 185, 235); 
-}
-
-void updateUI(float mA) {
-  float pressure = 0.0;
-  bool isError = false;
-  String statusText;
-  uint16_t statusColor;
-  uint16_t barColor;
-
-  // 1. EVALUATE SENSOR LOGIC
-  if (mA < 3.8 || mA > 20.2) {
-    isError = true;
-    statusText = "ERROR";
-    statusColor = TFT_RED;
-    barColor = TFT_DARKGREY; 
-  } else {
-    // Math updated for 0-10 Bar (4mA = 0, 20mA = 10)
-    pressure = ((mA - 4.0) / 16.0) * 10.0; 
-    
-    if (pressure < 0.0) pressure = 0.0;
-    if (pressure > 10.0) pressure = 10.0;
-
-    // Logic updated for 0-3 / 3-7 / 7-10 thresholds
-    if (pressure < 3.0) {
-      statusText = "Low Pressure";
-      statusColor = TFT_ORANGE;
-      barColor = TFT_ORANGE;
-    } else if (pressure <= 7.0) {
-      statusText = "Normal Pressure";
-      statusColor = tft.color565(0, 200, 0); 
-      barColor = tft.color565(0, 255, 0);    
-    } else {
-      statusText = "High Pressure";
-      statusColor = TFT_RED;
-      barColor = TFT_RED;
-    }
-  }
-
-  // 2. UPDATE ROUND GAUGE 
-  if (abs(pressure - lastDisplayPressure) >= 0.01 || isError) {
-    tft.setTextDatum(middle_center);
-    tft.setTextColor(TFT_WHITE, TFT_BLACK); 
-
-    if (isError) {
-      tft.setFont(&fonts::FreeSansBold18pt7b);
-      tft.drawString("--.--", 120, 150);
-      tft.setFont(&fonts::FreeSans9pt7b);
-      tft.drawString("Bar", 120, 185);
-      
-      tft.fillArc(120, 160, 60, 79, 135, 405, TFT_DARKGREY); 
-    } else {
-      char buf[10];
-      sprintf(buf, "%4.2f", pressure);
-      tft.setFont(&fonts::FreeSansBold18pt7b);
-      tft.drawString(buf, 120, 150);
-      
-      tft.setFont(&fonts::FreeSans9pt7b);
-      tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK); 
-      tft.drawString("Bar", 120, 185);
-
-      // Angle calculation shifted -90 degrees
-      float targetAngle = 135.0 + ((pressure / 10.0) * 270.0);
-
-      // Draw active fill and blank out the rest
-      tft.fillArc(120, 160, 60, 79, 135, targetAngle, barColor);
-      tft.fillArc(120, 160, 60, 79, targetAngle, 405, TFT_DARKGREY);
-    }
-    
-    lastDisplayPressure = pressure;
-  }
-
-  // 3. UPDATE NOTIFICATION BADGE
-  if (statusText != lastStatusText) {
-    tft.fillRoundRect(15, 250, 210, 60, 8, statusColor);
-    tft.setTextColor(TFT_WHITE, statusColor);
-    tft.setTextDatum(middle_center);
-    tft.setFont(&fonts::FreeSansBold12pt7b);
-
-    if (isError) {
-      tft.drawString("SENSOR ERROR", 120, 265);
-      tft.drawString("Out of Range", 120, 290);
-    } else {
-      tft.drawString(statusText, 120, 280); 
-    }
-    
-    lastStatusText = statusText;
-  }
-}
+  tft.fillArc(120, 160, 82,
