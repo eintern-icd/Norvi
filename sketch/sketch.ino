@@ -1,7 +1,6 @@
 /*
  * NORVI X1 (V2 N16R2) + NORVI X-AI4 (ADS1115)
- * Professional Single-Channel HMI Pressure Dashboard
- * (Optimized & Cleaned)
+ * Professional Single-Channel HMI with ROUND GAUGE
 */
 
 #include <Wire.h>
@@ -13,8 +12,8 @@
 #include <LovyanGFX.hpp>
 
 // --- SENSOR CONFIGURATION ---
-const float MIN_PRESSURE = 1.0;  // Minimum range of sensor
-const float MAX_PRESSURE = 10.0; // Maximum range of sensor
+const float MIN_PRESSURE = 1.0;
+const float MAX_PRESSURE = 10.0;
 
 // --- PINS ---
 #define SDA   8
@@ -80,9 +79,9 @@ public:
 
 LGFX tft;
 
-// --- STATE TRACKING (To prevent screen flickering) ---
+// --- STATE TRACKING ---
 unsigned long lastDisplayUpdate = 0;
-const unsigned long DISPLAY_INTERVAL = 200; // Fast 200ms updates
+const unsigned long DISPLAY_INTERVAL = 150; // Extra fast for smooth gauge movement
 
 float lastDisplayPressure = -999.0;
 String lastStatusText = "";
@@ -95,7 +94,7 @@ void setup() {
   Serial.begin(115200);
   delay(200);
 
-  Serial.println("\n--- NORVI PRESSURE HMI BOOTING ---");
+  Serial.println("\n--- NORVI ROUND GAUGE BOOTING ---");
 
   // 1. Wake up expansion bus & isolate SPI
   pinMode(PORT_RST, OUTPUT); digitalWrite(PORT_RST, HIGH); 
@@ -128,11 +127,9 @@ void setup() {
 }
 
 void loop() {
-  // Read Channel 1 (AIN1) Only
+  // Read Channel 1 (AIN1)
   int16_t adc0 = ads1.readADC_SingleEnded(0);
   float volts = ads1.computeVolts(adc0);
-  
-  // Hardware amplifier converts Voltage * 10 = mA
   float mA = volts * 10.0;
 
   // Update TFT Dashboard Smoothly
@@ -157,28 +154,29 @@ void drawStaticUI() {
   // Range Text
   tft.setTextColor(TFT_LIGHTGREY);
   tft.setFont(&fonts::FreeSans9pt7b);
-  tft.drawString("Measuring Range: 1 - 10 Bar", 120, 60);
+  tft.drawString("Measuring Range: 1 - 10 Bar", 120, 55);
 
-  // Gauge Outline and Empty Track
-  tft.drawRect(19, 149, 202, 32, TFT_WHITE); // White Border
-  tft.fillRect(20, 150, 200, 30, TFT_DARKGREY); // Empty Gauge Track
+  // --- DRAW STATIC GAUGE ELEMENTS ---
+  // The gauge spans from 225 degrees (bottom-left) to 135 degrees (bottom-right) = 270 degree sweep
+  
+  // Draw the thin, color-coded outer limit ring
+  // 1 to 3 Bar Zone (Angle 225 to 285)
+  tft.fillArc(120, 150, 93, 96, 225, 285, TFT_YELLOW);
+  // 3 to 7 Bar Zone (Angle 285 to 405)
+  tft.fillArc(120, 150, 93, 96, 285, 405, tft.color565(0, 200, 0)); // Green
+  // 7 to 10 Bar Zone (Angle 405 to 495)
+  tft.fillArc(120, 150, 93, 96, 405, 495, TFT_RED);
+  
+  // Draw the initial empty grey track for the main gauge body
+  tft.fillArc(120, 150, 70, 90, 225, 495, TFT_DARKGREY);
 
-  // Visual Zone Indicators under the Gauge (Y = 185)
-  // 1-3 Bar zone (Width: 44px)
-  tft.fillRect(20, 185, 44, 5, TFT_YELLOW);
-  // 3-7 Bar zone (Width: 89px)
-  tft.fillRect(64, 185, 89, 5, tft.color565(0, 200, 0)); // Green
-  // 7-10 Bar zone (Width: 67px)
-  tft.fillRect(153, 185, 67, 5, TFT_RED);
-
-  // Gauge Tick Labels
+  // Draw Tick Marks Labels
   tft.setTextColor(TFT_WHITE);
   tft.setFont(&fonts::FreeSans9pt7b);
-  tft.setTextDatum(top_center);
-  tft.drawString("1", 20, 195);
-  tft.drawString("3", 64, 195);
-  tft.drawString("7", 153, 195);
-  tft.drawString("10", 220, 195);
+  tft.setTextDatum(middle_right);
+  tft.drawString("1", 22, 220);
+  tft.setTextDatum(middle_left);
+  tft.drawString("10", 218, 220);
 }
 
 void updateUI(float mA) {
@@ -189,21 +187,19 @@ void updateUI(float mA) {
   uint16_t barColor;
 
   // 1. EVALUATE SENSOR LOGIC & NOTIFICATION ZONES
-  // Allow a tiny 0.1mA deadband for sensor fluctuation
-  if (mA < 3.9 || mA > 20.1) {
+  if (mA < 3.8 || mA > 20.2) {
     isError = true;
     statusText = "ERROR";
     statusColor = TFT_RED;
     barColor = TFT_DARKGREY; 
   } else {
-    // Math: Convert 4-20mA to 1-10 Bar
+    // Convert 4-20mA to 1-10 Bar
     pressure = 1.0 + ((mA - 4.0) / 16.0) * 9.0;
     
-    // Clamp visual values to bounds
+    // Clamp to boundaries
     if (pressure < 1.0) pressure = 1.0;
     if (pressure > 10.0) pressure = 10.0;
 
-    // Determine Notification Zones
     if (pressure < 3.0) {
       statusText = "Low Pressure";
       statusColor = TFT_ORANGE;
@@ -211,7 +207,7 @@ void updateUI(float mA) {
     } else if (pressure <= 7.0) {
       statusText = "Normal Pressure";
       statusColor = tft.color565(0, 200, 0); // Green
-      barColor = tft.color565(0, 255, 0);    // Bright Green Bar
+      barColor = tft.color565(0, 255, 0);    // Bright Green Fill
     } else {
       statusText = "High Pressure";
       statusColor = TFT_RED;
@@ -219,39 +215,46 @@ void updateUI(float mA) {
     }
   }
 
-  // 2. UPDATE LIVE NUMERIC VALUE & GAUGE (Only if changed to prevent flicker)
+  // 2. UPDATE ROUND GAUGE AND NUMBERS
   if (abs(pressure - lastDisplayPressure) >= 0.01 || isError) {
     tft.setTextDatum(middle_center);
     tft.setTextColor(TFT_WHITE, TFT_BLACK); 
-    tft.setFont(&fonts::FreeSansBold18pt7b); // Huge Font
 
     if (isError) {
-      tft.drawString(" --.-- Bar ", 120, 105);
-      tft.fillRect(20, 150, 200, 30, TFT_DARKGREY); // Clear the gauge
+      // Clear numbers and blank out gauge
+      tft.setFont(&fonts::FreeSansBold18pt7b);
+      tft.drawString("--.--", 120, 140);
+      tft.setFont(&fonts::FreeSans9pt7b);
+      tft.drawString("Bar", 120, 175);
+      
+      tft.fillArc(120, 150, 70, 90, 225, 495, TFT_DARKGREY); // Clear gauge
     } else {
-      char buf[20];
-      sprintf(buf, " %5.2f Bar ", pressure);
-      tft.drawString(buf, 120, 105);
+      // Print Numbers inside the circle
+      char buf[10];
+      sprintf(buf, "%4.2f", pressure);
+      tft.setFont(&fonts::FreeSansBold18pt7b);
+      tft.drawString(buf, 120, 140);
+      
+      tft.setFont(&fonts::FreeSans9pt7b);
+      tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK); 
+      tft.drawString("Bar", 120, 175);
 
-      // Calculate how many pixels wide the bar should be (0 to 200 pixels)
-      int barWidth = ((pressure - 1.0) / 9.0) * 200.0;
-      if (barWidth < 0) barWidth = 0;
-      if (barWidth > 200) barWidth = 200;
+      // Calculate the angle for the gauge sweep
+      // Min pressure (1.0) = 225 degrees. Max pressure (10.0) = 495 degrees.
+      float targetAngle = 225.0 + (((pressure - 1.0) / 9.0) * 270.0);
 
-      // Draw active colored bar
-      tft.fillRect(20, 150, barWidth, 30, barColor);
-      // Clear the rest of the empty track behind it
-      tft.fillRect(20 + barWidth, 150, 200 - barWidth, 30, TFT_DARKGREY); 
+      // Draw the active color portion of the arc
+      tft.fillArc(120, 150, 70, 90, 225, targetAngle, barColor);
+      
+      // Draw the empty grey portion ahead of the active value
+      tft.fillArc(120, 150, 70, 90, targetAngle, 495, TFT_DARKGREY);
     }
     
-    // Output debug to serial monitor
-    Serial.printf("Current: %.2f mA | Pressure: %.2f Bar | Status: %s\n", mA, (isError ? 0.0 : pressure), statusText.c_str());
     lastDisplayPressure = pressure;
   }
 
-  // 3. UPDATE NOTIFICATION BADGE (Only if state text changes)
+  // 3. UPDATE NOTIFICATION BADGE
   if (statusText != lastStatusText) {
-    // Draw the rounded notification box
     tft.fillRoundRect(10, 240, 220, 70, 8, statusColor);
     tft.setTextColor(TFT_WHITE, statusColor);
     tft.setTextDatum(middle_center);
