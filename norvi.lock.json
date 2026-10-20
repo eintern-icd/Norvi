@@ -24,6 +24,15 @@
         "version": "1.0.0"
       }
     ],
-    "git": []
+    "git": [
+      {
+        "name": "PCA9536D",
+        "url": "https://github.com/NORVIControllers/NORVI-X-Version-02",
+        "commit": "98c9c562e93a6eaeaa170a3002d918fc64e53ada",
+        "contentSha256": "672b7f17b207be1b6584c6cc2397cc70c158df0d2aae5e0952a263deede5daac",
+        "subpath": "libraries/Arduino_PCA9536-main",
+        "scope": "shared"
+      }
+    ]
   }
 }
