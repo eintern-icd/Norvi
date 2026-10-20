@@ -200,4 +200,111 @@ void drawStaticUI() {
   // --- DRAW STATIC GAUGE ELEMENTS ---
   
   // 0 to 3 Bar Zone (135 to 216 degrees)
-  tft.fillArc(120, 160, 82, 85, 135,
+  tft.fillArc(120, 160, 82, 85, 135, 216, TFT_YELLOW);
+  
+  // 3 to 7 Bar Zone (216 to 324 degrees)
+  tft.fillArc(120, 160, 82, 85, 216, 324, tft.color565(0, 200, 0)); // Green
+  
+  // 7 to 10 Bar Zone (324 to 405 degrees)
+  tft.fillArc(120, 160, 82, 85, 324, 405, TFT_RED);
+  
+  // Empty grey track
+  tft.fillArc(120, 160, 60, 79, 135, 405, TFT_DARKGREY);
+
+  // Draw Tick Marks Labels 
+  tft.setTextColor(TFT_WHITE);
+  tft.setFont(&fonts::FreeSans9pt7b);
+  
+  tft.setTextDatum(middle_center);
+  tft.drawString("0", 55, 235); 
+  tft.drawString("10", 185, 235); 
+}
+
+void updateUI(float mA) {
+  float pressure = 0.0;
+  bool isError = false;
+  String statusText;
+  uint16_t statusColor;
+  uint16_t barColor;
+
+  // 1. EVALUATE SENSOR LOGIC & SET SYSTEM STATE
+  if (mA < 3.8 || mA > 20.2) {
+    isError = true;
+    systemState = 3; // ERROR
+    statusText = "ERROR";
+    statusColor = TFT_RED;
+    barColor = TFT_DARKGREY; 
+  } else {
+    // Math for 0-10 Bar
+    pressure = ((mA - 4.0) / 16.0) * 10.0; 
+    
+    if (pressure < 0.0) pressure = 0.0;
+    if (pressure > 10.0) pressure = 10.0;
+
+    // Logic for 0-3 / 3-7 / 7-10 thresholds
+    if (pressure < 3.0) {
+      systemState = 1; // LOW
+      statusText = "Low Pressure";
+      statusColor = TFT_ORANGE;
+      barColor = TFT_ORANGE;
+    } else if (pressure <= 7.0) {
+      systemState = 0; // NORMAL
+      statusText = "Normal Pressure";
+      statusColor = tft.color565(0, 200, 0); 
+      barColor = tft.color565(0, 255, 0);  
+    } else {
+      systemState = 2; // HIGH
+      statusText = "High Pressure";
+      statusColor = TFT_RED;
+      barColor = TFT_RED;
+    }
+  }
+
+  // 2. UPDATE ROUND GAUGE 
+  if (abs(pressure - lastDisplayPressure) >= 0.01 || isError) {
+    tft.setTextDatum(middle_center);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK); 
+
+    if (isError) {
+      tft.setFont(&fonts::FreeSansBold18pt7b);
+      tft.drawString("--.--", 120, 150);
+      tft.setFont(&fonts::FreeSans9pt7b);
+      tft.drawString("Bar", 120, 185);
+      
+      tft.fillArc(120, 160, 60, 79, 135, 405, TFT_DARKGREY); 
+    } else {
+      char buf[10];
+      sprintf(buf, "%4.2f", pressure);
+      tft.setFont(&fonts::FreeSansBold18pt7b);
+      tft.drawString(buf, 120, 150);
+      
+      tft.setFont(&fonts::FreeSans9pt7b);
+      tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK); 
+      tft.drawString("Bar", 120, 185);
+
+      float targetAngle = 135.0 + ((pressure / 10.0) * 270.0);
+
+      tft.fillArc(120, 160, 60, 79, 135, targetAngle, barColor);
+      tft.fillArc(120, 160, 60, 79, targetAngle, 405, TFT_DARKGREY);
+    }
+    
+    lastDisplayPressure = pressure;
+  }
+
+  // 3. UPDATE NOTIFICATION BADGE
+  if (statusText != lastStatusText) {
+    tft.fillRoundRect(15, 250, 210, 60, 8, statusColor);
+    tft.setTextColor(TFT_WHITE, statusColor);
+    tft.setTextDatum(middle_center);
+    tft.setFont(&fonts::FreeSansBold12pt7b);
+
+    if (isError) {
+      tft.drawString("SENSOR ERROR", 120, 265);
+      tft.drawString("Out of Range", 120, 290);
+    } else {
+      tft.drawString(statusText, 120, 280); 
+    }
+    
+    lastStatusText = statusText;
+  }
+}
