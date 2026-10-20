@@ -200,4 +200,4 @@ void drawStaticUI() {
   // --- DRAW STATIC GAUGE ELEMENTS ---
   
   // 0 to 3 Bar Zone (135 to 216 degrees)
-  tft.fillArc(120, 160, 82,
+  tft.fillArc(120, 160, 82, 85, 135,
