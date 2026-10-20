@@ -7,7 +7,7 @@
 #include <WiFi.h>
 #include <SPI.h>
 #include <Adafruit_ADS1X15.h>
-#include <PCA9536.h>
+#include <PCA9536D.h>
 #include <CST816S.h>
 
 #define LGFX_USE_V1
