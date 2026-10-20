@@ -1,6 +1,7 @@
 /*
  * NORVI X1 (V2 N16R2) + NORVI X-AI4 (ADS1115)
  * Professional Single-Channel HMI with ROUND GAUGE
+ * (UI Proportions Adjusted)
 */
 
 #include <Wire.h>
@@ -157,26 +158,28 @@ void drawStaticUI() {
   tft.drawString("Measuring Range: 1 - 10 Bar", 120, 55);
 
   // --- DRAW STATIC GAUGE ELEMENTS ---
-  // The gauge spans from 225 degrees (bottom-left) to 135 degrees (bottom-right) = 270 degree sweep
+  // The gauge spans from 225 degrees (bottom-left) to 495 degrees (bottom-right)
   
-  // Draw the thin, color-coded outer limit ring
+  // Draw the thin, color-coded outer limit ring (Shrunk from 96 to 85)
   // 1 to 3 Bar Zone (Angle 225 to 285)
-  tft.fillArc(120, 150, 93, 96, 225, 285, TFT_YELLOW);
+  tft.fillArc(120, 145, 82, 85, 225, 285, TFT_YELLOW);
   // 3 to 7 Bar Zone (Angle 285 to 405)
-  tft.fillArc(120, 150, 93, 96, 285, 405, tft.color565(0, 200, 0)); // Green
+  tft.fillArc(120, 145, 82, 85, 285, 405, tft.color565(0, 200, 0)); // Green
   // 7 to 10 Bar Zone (Angle 405 to 495)
-  tft.fillArc(120, 150, 93, 96, 405, 495, TFT_RED);
+  tft.fillArc(120, 145, 82, 85, 405, 495, TFT_RED);
   
-  // Draw the initial empty grey track for the main gauge body
-  tft.fillArc(120, 150, 70, 90, 225, 495, TFT_DARKGREY);
+  // Draw the initial empty grey track for the main gauge body (Shrunk from 90 to 79)
+  tft.fillArc(120, 145, 60, 79, 225, 495, TFT_DARKGREY);
 
   // Draw Tick Marks Labels
   tft.setTextColor(TFT_WHITE);
   tft.setFont(&fonts::FreeSans9pt7b);
+  
   tft.setTextDatum(middle_right);
-  tft.drawString("1", 22, 220);
+  tft.drawString("1", 35, 210); // Moved inward slightly
+  
   tft.setTextDatum(middle_left);
-  tft.drawString("10", 218, 220);
+  tft.drawString("10", 205, 210); // Moved inward slightly
 }
 
 void updateUI(float mA) {
@@ -223,31 +226,31 @@ void updateUI(float mA) {
     if (isError) {
       // Clear numbers and blank out gauge
       tft.setFont(&fonts::FreeSansBold18pt7b);
-      tft.drawString("--.--", 120, 140);
+      tft.drawString("--.--", 120, 135);
       tft.setFont(&fonts::FreeSans9pt7b);
-      tft.drawString("Bar", 120, 175);
+      tft.drawString("Bar", 120, 170);
       
-      tft.fillArc(120, 150, 70, 90, 225, 495, TFT_DARKGREY); // Clear gauge
+      tft.fillArc(120, 145, 60, 79, 225, 495, TFT_DARKGREY); // Clear gauge
     } else {
       // Print Numbers inside the circle
       char buf[10];
       sprintf(buf, "%4.2f", pressure);
       tft.setFont(&fonts::FreeSansBold18pt7b);
-      tft.drawString(buf, 120, 140);
+      tft.drawString(buf, 120, 135);
       
       tft.setFont(&fonts::FreeSans9pt7b);
       tft.setTextColor(TFT_LIGHTGREY, TFT_BLACK); 
-      tft.drawString("Bar", 120, 175);
+      tft.drawString("Bar", 120, 170);
 
       // Calculate the angle for the gauge sweep
       // Min pressure (1.0) = 225 degrees. Max pressure (10.0) = 495 degrees.
       float targetAngle = 225.0 + (((pressure - 1.0) / 9.0) * 270.0);
 
       // Draw the active color portion of the arc
-      tft.fillArc(120, 150, 70, 90, 225, targetAngle, barColor);
+      tft.fillArc(120, 145, 60, 79, 225, targetAngle, barColor);
       
       // Draw the empty grey portion ahead of the active value
-      tft.fillArc(120, 150, 70, 90, targetAngle, 495, TFT_DARKGREY);
+      tft.fillArc(120, 145, 60, 79, targetAngle, 495, TFT_DARKGREY);
     }
     
     lastDisplayPressure = pressure;
@@ -255,16 +258,17 @@ void updateUI(float mA) {
 
   // 3. UPDATE NOTIFICATION BADGE
   if (statusText != lastStatusText) {
-    tft.fillRoundRect(10, 240, 220, 70, 8, statusColor);
+    // Reduced height from 70 to 60, width to 210, moved to Y=245 for a cleaner margin
+    tft.fillRoundRect(15, 245, 210, 60, 8, statusColor);
     tft.setTextColor(TFT_WHITE, statusColor);
     tft.setTextDatum(middle_center);
     tft.setFont(&fonts::FreeSansBold12pt7b);
 
     if (isError) {
       tft.drawString("SENSOR ERROR", 120, 260);
-      tft.drawString("Out of Range", 120, 290);
+      tft.drawString("Out of Range", 120, 285);
     } else {
-      tft.drawString(statusText, 120, 275);
+      tft.drawString(statusText, 120, 275); // Centered vertically in the new box
     }
     
     lastStatusText = statusText;
