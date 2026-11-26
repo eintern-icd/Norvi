@@ -1,4 +1,4 @@
-//#include <Norvi.h>
+#include <Norvi.h>
 #include <SPI.h>
 
 #define LGFX_USE_V1
@@ -81,10 +81,10 @@ void loop() {
   //Norvi.publish("Norvi", 1);
 
   // Publishing an integer value
-  //Norvi.publish("temperature", 24);
+  Norvi.publish("temperature", 24);
   
   // Publishing a float value (note the 'f' at the end)
-  //Norvi.publish("humidity", 55.5f);
+  Norvi.publish("humidity", 55.5f);
   
   // Publishing a boolean value
   //Norvi.publish("motor_status", true);
